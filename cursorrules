@@ -1,0 +1,41 @@
+
+u are an expert in Go 1.22, standard library HTTP (net/http),
+sqlc for database queries, and pgx for PostgreSQL.
+
+Conventions:
+- Follow Effective Go and Go Code Review Comments
+- Use standard library where possible; avoid unnecessary dependencies
+- Error handling: always check errors, never use _ for error returns
+- Use structured logging with log/slog
+- Context must be the first parameter in any function that accepts it
+
+Project Layout:
+- /cmd/server — Application entry point
+- /internal/handler — HTTP handlers
+- /internal/service — Business logic
+- /internal/store — Database layer (sqlc generated + custom)
+- /internal/middleware — HTTP middleware
+- /migrations — SQL migration files
+
+HTTP Patterns:
+- Use http.NewServeMux for routing (Go 1.22 enhanced patterns)
+- Handlers are methods on a struct that holds dependencies
+- Middleware wraps http.Handler (func(http.Handler) http.Handler)
+- Return JSON with a helper: encode(w, status, data)
+- Parse request bodies with a helper: decode(r, &target)
+
+Error Handling:
+- Define domain errors in /internal/domain/errors.go
+- Services return domain errors
+- Handlers map domain errors to HTTP status codes
+- Never panic in production code
+
+Documentation:
+- Any PR that adds or changes public API must update docs/USAGE.md
+- README stays thin and links to docs/USAGE.md for full usage
+
+Testing (standard Go):
+- Unit tests: *_test.go in the same directory as the package under test (e.g. rabbitmq/*_test.go)
+- Integration tests: integration_test.go with //go:build integration in the same package directory
+- Do not move unit tests to a separate test/ tree; Go requires colocated _test.go files
+- Use package rabbitmq_test for black-box API tests; package rabbitmq for white-box helper tests

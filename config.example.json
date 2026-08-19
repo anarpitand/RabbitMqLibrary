@@ -1,0 +1,43 @@
+{
+  "connection": {
+    "username": "guest",
+    "password": "guest",
+    "host": "localhost",
+    "vhost": "/",
+    "quorum_vhost": "/quorum",
+    "port": 5672,
+    "ssl_port": 5671,
+    "use_ssl": false,
+    "ssl": {
+      "server_name": "localhost",
+      "min_version": "tls12",
+      "insecure_skip_verify": false
+    },
+    "channel_max": 2047,
+    "heartbeat_seconds": 60,
+    "reconnect_interval_seconds": 5,
+    "auto_reconnect": true
+  },
+  "queues": [
+    {
+      "name": "orders.created",
+      "role": "subscriber",
+      "queue_type": "quorum",
+      "exchange": "orders.created",
+      "exchange_type": "direct",
+      "routing_key": "orders.created"
+    },
+    {
+      "name": "orders.failed",
+      "role": "subscriber",
+      "queue_type": "classic",
+      "priority": true,
+      "max_priority": 10
+    },
+    {
+      "name": "orders.outbound",
+      "role": "publishonly",
+      "queue_type": "classic"
+    }
+  ]
+}

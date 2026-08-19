@@ -1,0 +1,16 @@
+{
+  "connection": {
+    "host": "localhost",
+    "vhost": "/",
+    "quorum_vhost": "/quorum",
+    "port": 5672,
+    "auto_reconnect": true
+  },
+  "queues": [
+    {
+      "name": "example.config",
+      "role": "subscriber",
+      "queue_type": "classic"
+    }
+  ]
+}
