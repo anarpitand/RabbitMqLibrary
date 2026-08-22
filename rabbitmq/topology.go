@@ -119,20 +119,65 @@ func (tm *TopologyManager) declareEntry(ctx context.Context, ch *amqp.Channel, q
 		return topologyError("bind queue", q.QueueType, q.Exchange, q.Name, q.RoutingKey, err)
 	}
 
+	if err := tm.declareDeadLetter(ch, q); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (tm *TopologyManager) declareDeadLetter(ch *amqp.Channel, q QueueConfig) error {
+	if q.DeadLetter == nil {
+		return nil
+	}
+
+	durable := q.DurableOrDefault()
+	maxRetries := q.DeadLetter.MaxRetriesOrDefault()
+	for level := 0; level < maxRetries; level++ {
+		ttl := retryDelayMs(level, q.DeadLetter.InitialDelayMs, q.DeadLetter.MaxDelayMs)
+		name := retryQueueName(q.Name, level)
+		if _, err := ch.QueueDeclare(name, durable, false, false, false, waitQueueArgs(q, ttl)); err != nil {
+			return topologyError("declare retry queue", q.QueueType, q.Exchange, name, q.Name, err)
+		}
+	}
+
+	dlq := defaultDLQName(q.Name)
+	if tm.cfg.QueueByName(dlq) != nil {
+		return nil
+	}
+	if _, err := ch.QueueDeclare(dlq, durable, false, false, false, queueDeclareArgs(q)); err != nil {
+		return topologyError("declare dead letter queue", q.QueueType, q.Exchange, dlq, "", err)
+	}
 	return nil
 }
 
 // queueDeclareArgs maps queue config to AMQP queue declare arguments.
 func queueDeclareArgs(q QueueConfig) amqp.Table {
+	args := amqp.Table{}
 	switch q.QueueType {
 	case QueueKindQuorum:
-		return amqp.Table{"x-queue-type": "quorum"}
+		args["x-queue-type"] = "quorum"
 	case QueueKindClassic:
 		if q.Priority {
-			return amqp.Table{"x-max-priority": int32(q.MaxPriorityOrDefault())}
+			args["x-max-priority"] = int32(q.MaxPriorityOrDefault())
 		}
 	}
-	return nil
+	if len(args) == 0 {
+		return nil
+	}
+	return args
+}
+
+func waitQueueArgs(q QueueConfig, ttlMs int64) amqp.Table {
+	args := amqp.Table{
+		"x-message-ttl":             ttlMs,
+		"x-dead-letter-exchange":    "",
+		"x-dead-letter-routing-key": q.Name,
+	}
+	for k, v := range queueDeclareArgs(q) {
+		args[k] = v
+	}
+	return args
 }
 
 func topologyError(step string, kind QueueKind, exchange, queue, routingKey string, err error) error {

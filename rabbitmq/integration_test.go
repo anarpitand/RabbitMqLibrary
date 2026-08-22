@@ -93,8 +93,12 @@ func TestIntegrationTopologyDeclare(t *testing.T) {
 	}
 
 	verifyQueue("/", "integration.topology.classic")
+	verifyQueue("/", "integration.topology.classic.retry.0")
+	verifyQueue("/", "integration.topology.classic.dlq")
 	verifyQueue("/", "integration.topology.publishonly")
 	verifyQueue("/quorum", "integration.topology.quorum")
+	verifyQueue("/quorum", "integration.topology.quorum.retry.0")
+	verifyQueue("/quorum", "integration.topology.quorum.dlq")
 }
 
 func TestIntegrationPublish(t *testing.T) {
@@ -274,6 +278,70 @@ func TestIntegrationGracefulShutdown(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("handler did not complete during graceful shutdown")
+	}
+}
+
+func TestIntegrationDeadLetterRetryThenPark(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	src := "integration.dl." + suffix
+	dlq := src + ".dlq"
+	one := 1
+	delay := 200
+
+	cfg := rabbitmq.Config{
+		Connection: rabbitmq.ConnectionConfig{Host: "localhost", VHost: "/"},
+		Queues: []rabbitmq.QueueConfig{
+			{
+				Name:      src,
+				QueueType: rabbitmq.QueueKindClassic,
+				DeadLetter: &rabbitmq.DeadLetterConfig{
+					MaxRetries:     &one,
+					InitialDelayMs: delay,
+					MaxDelayMs:     delay,
+				},
+			},
+			{Name: dlq, QueueType: rabbitmq.QueueKindClassic},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, err := rabbitmq.New(ctx, cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer client.Close(ctx)
+
+	parked := make(chan string, 1)
+	if err := client.RegisterConsumer(src, func(ctx context.Context, d rabbitmq.Delivery) error {
+		return fmt.Errorf("fail")
+	}); err != nil {
+		t.Fatalf("register source: %v", err)
+	}
+	if err := client.RegisterConsumer(dlq, func(ctx context.Context, d rabbitmq.Delivery) error {
+		parked <- string(d.Body)
+		return nil
+	}); err != nil {
+		t.Fatalf("register dlq: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	if err := client.Publish(ctx, []byte("poison-msg"), src, 0); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	select {
+	case got := <-parked:
+		if got != "poison-msg" {
+			t.Fatalf("dlq body: got %q", got)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timeout waiting for dead-lettered message")
 	}
 }
 

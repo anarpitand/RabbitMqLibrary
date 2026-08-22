@@ -21,7 +21,7 @@ func TestRegisterConsumerValidation(t *testing.T) {
 	}
 	cfg.ApplyDefaults()
 
-	mgr := NewConsumerManager(nil, cfg, nil)
+	mgr := NewConsumerManager(nil, cfg, nil, nil)
 
 	if err := mgr.RegisterConsumer("missing", func(ctx context.Context, d Delivery) error { return nil }); err != ErrQueueNotFound {
 		t.Fatalf("expected ErrQueueNotFound, got %v", err)
@@ -49,14 +49,10 @@ func TestDefaultConsumerSettings(t *testing.T) {
 	if s.concurrency != defaultConcurrency {
 		t.Fatalf("concurrency: got %d", s.concurrency)
 	}
-	if s.requeueOnError {
-		t.Fatal("requeueOnError should default false")
-	}
 
 	WithPrefetch(50)(&s)
 	WithConcurrency(4)(&s)
-	WithRequeueOnError(true)(&s)
-	if s.prefetch != 50 || s.concurrency != 4 || !s.requeueOnError {
+	if s.prefetch != 50 || s.concurrency != 4 {
 		t.Fatal("options not applied")
 	}
 }
@@ -81,7 +77,7 @@ func TestRegisterConsumerDuplicate(t *testing.T) {
 	}
 	cfg.ApplyDefaults()
 
-	mgr := NewConsumerManager(nil, cfg, nil)
+	mgr := NewConsumerManager(nil, cfg, nil, nil)
 	handler := func(ctx context.Context, d Delivery) error { return nil }
 
 	mgr.runners["q"] = &consumerRunner{mgr: mgr, queueName: "q"}
@@ -107,7 +103,7 @@ func TestRegisterConsumerStopWaitsForRunner(t *testing.T) {
 	cfg.ApplyDefaults()
 
 	conn := NewConnectionManager(cfg, nil, nil, nil, nil)
-	mgr := NewConsumerManager(conn, cfg, nil)
+	mgr := NewConsumerManager(conn, cfg, nil, nil)
 
 	if err := mgr.RegisterConsumer("q", func(ctx context.Context, d Delivery) error {
 		return nil
@@ -146,7 +142,7 @@ func TestRegisterConsumerStopRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			conn := NewConnectionManager(cfg, nil, nil, nil, nil)
-			mgr := NewConsumerManager(conn, cfg, nil)
+			mgr := NewConsumerManager(conn, cfg, nil, nil)
 
 			var inner sync.WaitGroup
 			inner.Add(2)
@@ -166,17 +162,20 @@ func TestRegisterConsumerStopRace(t *testing.T) {
 	wg.Wait()
 }
 
-func TestShouldRequeue(t *testing.T) {
-	if !shouldRequeue(false, true) {
-		t.Fatal("shutdown should requeue even when requeueOnError is false")
+func TestDeadLetterTarget(t *testing.T) {
+	one := 1
+	q := QueueConfig{
+		Name: "jobs",
+		DeadLetter: &DeadLetterConfig{
+			MaxRetries: &one,
+		},
 	}
-	if !shouldRequeue(true, false) {
-		t.Fatal("requeueOnError should requeue")
+	target, next := deadLetterTarget(q, 0)
+	if target != "jobs.retry.0" || next != 1 {
+		t.Fatalf("first nack: %s %d", target, next)
 	}
-	if shouldRequeue(false, false) {
-		t.Fatal("should not requeue by default")
-	}
-	if !shouldRequeue(true, true) {
-		t.Fatal("both true should requeue")
+	target, next = deadLetterTarget(q, 1)
+	if target != "jobs.dlq" || next != 1 {
+		t.Fatalf("park: %s %d", target, next)
 	}
 }

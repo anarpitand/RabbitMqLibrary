@@ -17,6 +17,15 @@ const sampleJSON = `{
   "queues": [
     {
       "name": "orders.created",
+      "queue_type": "quorum",
+      "dead_letter": {
+        "max_retries": 2,
+        "initial_delay_ms": 500,
+        "max_delay_ms": 4000
+      }
+    },
+    {
+      "name": "orders.created.dlq",
       "queue_type": "quorum"
     },
     {
@@ -46,11 +55,17 @@ func TestLoadConfigFromJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFromJSON: %v", err)
 	}
-	if len(cfg.Queues) != 2 {
+	if len(cfg.Queues) != 3 {
 		t.Fatalf("queues len: got %d", len(cfg.Queues))
 	}
-	if cfg.Queues[1].MaxPriorityOrDefault() != 8 {
-		t.Fatalf("max_priority: got %d", cfg.Queues[1].MaxPriorityOrDefault())
+	if cfg.Queues[0].DeadLetter == nil || cfg.Queues[0].DeadLetter.MaxRetriesOrDefault() != 2 {
+		t.Fatal("expected dead_letter max_retries 2")
+	}
+	if cfg.Queues[1].DeadLetter != nil {
+		t.Fatal("park queue must not have dead_letter")
+	}
+	if cfg.Queues[2].MaxPriorityOrDefault() != 8 {
+		t.Fatalf("max_priority: got %d", cfg.Queues[2].MaxPriorityOrDefault())
 	}
 }
 
@@ -61,6 +76,9 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	}
 	if cfg.Queues[1].Role != rabbitmq.QueueRolePublishOnly {
 		t.Fatalf("role: got %q", cfg.Queues[1].Role)
+	}
+	if cfg.Queues[0].DeadLetter == nil || cfg.Queues[0].DeadLetter.MaxRetriesOrDefault() != 3 {
+		t.Fatal("expected default dead_letter on subscriber")
 	}
 }
 

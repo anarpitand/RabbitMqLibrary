@@ -119,26 +119,67 @@ func (p *Publisher) InvalidateForVHost(vhost string) {
 }
 
 func (p *Publisher) publishOnce(ctx context.Context, q *QueueConfig, payload []byte, priority int) error {
-	ch, unlock, err := p.acquireChannel(q.QueueType)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-
 	msg := amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		Body:         payload,
 		Priority:     uint8(priority),
 	}
+	return p.publishToOnce(ctx, q.QueueType, q.Exchange, q.RoutingKey, msg)
+}
 
-	dc, err := ch.PublishWithDeferredConfirmWithContext(ctx, q.Exchange, q.RoutingKey, false, false, msg)
+// publishToQueue confirm-publishes msg to queueName via the default exchange.
+func (p *Publisher) publishToQueue(ctx context.Context, kind QueueKind, queueName string, msg amqp.Publishing) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if msg.DeliveryMode == 0 {
+		msg.DeliveryMode = amqp.Persistent
+	}
+
+	base := time.Duration(p.cfg.Connection.ReconnectIntervalSeconds) * time.Second
+	var lastErr error
+	for attempt := 0; attempt <= p.maxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		lastErr = p.publishToOnce(ctx, kind, "", queueName, msg)
+		if lastErr == nil {
+			return nil
+		}
+		if !isRetryablePublishError(lastErr) || attempt == p.maxRetries {
+			return lastErr
+		}
+		wait := backoff.Duration(attempt, base, 2*base)
+		p.logger.Warn("rabbitmq publish retry",
+			"queue", queueName,
+			"attempt", attempt+1,
+			"error", lastErr,
+			"wait", wait,
+		)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	return lastErr
+}
+
+func (p *Publisher) publishToOnce(ctx context.Context, kind QueueKind, exchange, routingKey string, msg amqp.Publishing) error {
+	ch, unlock, err := p.acquireChannel(kind)
 	if err != nil {
-		p.invalidateKindLocked(q.QueueType)
-		return fmt.Errorf("publish to exchange=%s routing_key=%s: %w", q.Exchange, q.RoutingKey, err)
+		return err
+	}
+	defer unlock()
+
+	dc, err := ch.PublishWithDeferredConfirmWithContext(ctx, exchange, routingKey, false, false, msg)
+	if err != nil {
+		p.invalidateKindLocked(kind)
+		return fmt.Errorf("publish to exchange=%s routing_key=%s: %w", exchange, routingKey, err)
 	}
 	if dc == nil {
-		p.invalidateKindLocked(q.QueueType)
+		p.invalidateKindLocked(kind)
 		return ErrPublishNotConfirmed
 	}
 
@@ -151,11 +192,11 @@ func (p *Publisher) publishOnce(ctx context.Context, q *QueueConfig, payload []b
 
 	acked, err := dc.WaitContext(waitCtx)
 	if err != nil {
-		p.invalidateKindLocked(q.QueueType)
+		p.invalidateKindLocked(kind)
 		return mapConfirmWaitError(ctx, err)
 	}
 	if !acked {
-		p.invalidateKindLocked(q.QueueType)
+		p.invalidateKindLocked(kind)
 		return ErrPublishNotConfirmed
 	}
 

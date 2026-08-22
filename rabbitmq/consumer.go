@@ -17,16 +17,16 @@ const (
 	defaultConcurrency = 1
 )
 
-// Handler processes a consumed message. Return nil to ack; return an error to nack.
+// Handler processes a consumed message. Return nil to ack; return an error to
+// delay-retry or park on the dead-letter queue (or nack on shutdown).
 type Handler func(ctx context.Context, d Delivery) error
 
 // ConsumerOption configures a registered consumer.
 type ConsumerOption func(*consumerSettings)
 
 type consumerSettings struct {
-	prefetch       int
-	concurrency    int
-	requeueOnError bool
+	prefetch    int
+	concurrency int
 }
 
 // WithPrefetch sets the consumer prefetch count (basic.qos).
@@ -47,24 +47,17 @@ func WithConcurrency(count int) ConsumerOption {
 	}
 }
 
-// WithRequeueOnError requeues messages when the handler returns an error.
-func WithRequeueOnError(requeue bool) ConsumerOption {
-	return func(s *consumerSettings) {
-		s.requeueOnError = requeue
-	}
-}
-
 func defaultConsumerSettings() consumerSettings {
 	return consumerSettings{
-		prefetch:       defaultPrefetch,
-		concurrency:    defaultConcurrency,
-		requeueOnError: false,
+		prefetch:    defaultPrefetch,
+		concurrency: defaultConcurrency,
 	}
 }
 
 // ConsumerManager registers consumers and manages their lifecycle.
 type ConsumerManager struct {
 	conn   *ConnectionManager
+	pub    *Publisher
 	cfg    Config
 	logger *slog.Logger
 
@@ -80,12 +73,13 @@ type ConsumerManager struct {
 }
 
 // NewConsumerManager creates a consumer manager.
-func NewConsumerManager(conn *ConnectionManager, cfg Config, logger *slog.Logger) *ConsumerManager {
+func NewConsumerManager(conn *ConnectionManager, cfg Config, logger *slog.Logger, pub *Publisher) *ConsumerManager {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &ConsumerManager{
 		conn:    conn,
+		pub:     pub,
 		cfg:     cfg,
 		logger:  logger,
 		runners: make(map[string]*consumerRunner),
@@ -367,7 +361,19 @@ func (r *consumerRunner) handleDelivery(d amqp.Delivery) {
 			stopping = true
 		default:
 		}
-		requeue := shouldRequeue(r.settings.requeueOnError, stopping)
+		if !stopping && r.qcfg.DeadLetter != nil {
+			if routeErr := r.routeFailedDelivery(d, err); routeErr != nil {
+				r.mgr.logger.Error("rabbitmq dead letter route failed",
+					"queue", r.queueName,
+					"error", routeErr,
+				)
+				if nackErr := d.Nack(false, true); nackErr != nil {
+					r.mgr.logger.Error("rabbitmq nack failed", "queue", r.queueName, "error", nackErr)
+				}
+			}
+			return
+		}
+		requeue := stopping
 		r.mgr.logger.Warn("rabbitmq handler error",
 			"queue", r.queueName,
 			"error", err,
@@ -384,10 +390,41 @@ func (r *consumerRunner) handleDelivery(d amqp.Delivery) {
 	}
 }
 
-// shouldRequeue decides whether to requeue after a handler error.
-// Shutdown always requeues so Close does not discard in-flight work.
-func shouldRequeue(requeueOnError bool, stopping bool) bool {
-	return stopping || requeueOnError
+// routeFailedDelivery parks or delay-retries a nacked message, then acks the original.
+// ponytail: publish-then-ack can duplicate across crash; handlers must stay idempotent.
+// Upgrade: broker-atomic nack+DLX if a later design can still do per-level delay.
+func (r *consumerRunner) routeFailedDelivery(d amqp.Delivery, handlerErr error) error {
+	if r.mgr.pub == nil {
+		return fmt.Errorf("publisher not configured")
+	}
+
+	count := retryCountFromHeaders(d.Headers)
+	target, nextCount := deadLetterTarget(r.qcfg, count)
+
+	r.mgr.logger.Warn("rabbitmq handler error",
+		"queue", r.queueName,
+		"error", handlerErr,
+		"retry_count", count,
+		"target", target,
+	)
+
+	ctx := context.Background()
+	msg := publishingFromDelivery(d, nextCount)
+	if err := r.mgr.pub.publishToQueue(ctx, r.qcfg.QueueType, target, msg); err != nil {
+		return err
+	}
+	if ackErr := d.Ack(false); ackErr != nil {
+		return fmt.Errorf("ack after dead-letter publish: %w", ackErr)
+	}
+	return nil
+}
+
+func deadLetterTarget(q QueueConfig, count int) (string, int) {
+	maxRetries := q.DeadLetter.MaxRetriesOrDefault()
+	if count < maxRetries {
+		return retryQueueName(q.Name, count), count + 1
+	}
+	return parkQueueName(q), count
 }
 
 func (r *consumerRunner) cancelConsume() {

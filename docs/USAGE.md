@@ -11,6 +11,7 @@
 - [Topology Setup](#topology-setup)
 - [Publishing](#publishing)
 - [Consuming](#consuming)
+  - [Dead-letter retries](#dead-letter-retries)
 - [Error Handling](#error-handling)
 - [Graceful Shutdown](#graceful-shutdown)
 - [Examples](#examples)
@@ -118,6 +119,7 @@ The `queues` array defines topology (exchange, queue, binding) and routing metad
 | `durable` | bool | `true` | Queue and exchange durable |
 | `priority` | bool | `false` | Classic only. Opt-in priority queue |
 | `max_priority` | int | `10` | Classic with `priority: true`, range 1–10 |
+| `dead_letter` | object | defaults applied | Optional overrides. Subscriber queues always dead-letter. See [Dead-letter retries](#dead-letter-retries) |
 
 **Routing rule:** declare, publish, and consume for a queue always use that queue's `queue_type` to select the vhost (`vhost` for classic, `quorum_vhost` for quorum).
 
@@ -400,17 +402,16 @@ err := client.RegisterConsumer("orders.created", func(ctx context.Context, d rab
 | Handler return | Action |
 | --- | --- |
 | `nil` | Message is acknowledged |
-| non-nil error | Message is nacked; requeue depends on `WithRequeueOnError` |
+| non-nil error | Delay-retried, then parked on `{queue}.dlq`. Shutdown nacks with requeue. Park-queue handler errors nack without requeue. |
 
 ### Consumer options
 
-Defaults: `prefetch=10`, `concurrency=1`, `requeueOnError=false`.
+Defaults: `prefetch=10`, `concurrency=1`.
 
 ```go
 err := client.RegisterConsumer("orders.created", handler,
     rabbitmq.WithPrefetch(20),
     rabbitmq.WithConcurrency(4),
-    rabbitmq.WithRequeueOnError(true),
 )
 ```
 
@@ -435,6 +436,34 @@ err := client.RegisterConsumer("orders.created", handler,
 | `role=publishonly` | `ErrPublishOnlyQueue` |
 | Consumer manager stopped | `ErrConsumerStopped` |
 | Duplicate registration | `ErrConfigInvalid` |
+
+### Dead-letter retries
+
+Every **subscriber** queue dead-letters on handler error (when the consumer is not shutting down). Omit `dead_letter` to use defaults. Park name is always `{name}.dlq`.
+
+```yaml
+# optional overrides; omit the block for defaults
+dead_letter:
+  max_retries: 5
+  initial_delay_ms: 2000
+  max_delay_ms: 120000
+```
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `max_retries` | `3` | Delayed redeliveries after the first failure (`0` parks immediately). Range 0–16 |
+| `initial_delay_ms` | `1000` | Level-0 wait queue TTL. Milliseconds (sub-second retries / tests) |
+| `max_delay_ms` | `60000` | Cap. Must be >= `initial_delay_ms` |
+
+Delay for level `n` is `min(max_delay_ms, initial_delay_ms * 2^n)` as a **queue** TTL on `{name}.retry.{n}` (one queue per level so classic queues do not block short retries behind long ones). Expired wait messages dead-letter to the **source queue only** (default exchange).
+
+To consume poison in-process, add a subscriber queue named `{source}.dlq` with the same `queue_type`. That park queue does not get its own retries. `publishonly` queues do not dead-letter.
+
+Shutdown still requeues in-flight work.
+
+Publish-then-ack is not atomic: a crash after the copy is confirmed and before ack can duplicate. Handlers should stay idempotent. Park queues are unbounded here; cap them with a broker policy if needed. Changing retry TTLs later fails startup if wait queues already exist with different args (precondition).
+
+Do not set the `x-rmq-retry-count` header on publishes; the library owns it.
 
 ### Reconnect behavior
 
@@ -470,7 +499,7 @@ if err := client.Publish(ctx, payload, "orders.created", 0); err != nil {
 
 Operational errors (AMQP, network) are wrapped with context including queue, exchange, and routing key where applicable.
 
-**Duplicate delivery:** after reconnect, unacknowledged messages may be redelivered. Handlers should be idempotent.
+**Duplicate delivery:** after reconnect, unacknowledged messages may be redelivered. Dead-letter retry uses publish-then-ack and can also duplicate across a crash. Handlers should be idempotent.
 
 ## Graceful Shutdown
 

@@ -39,6 +39,7 @@ A config-driven Go library for RabbitMQ that handles connection lifecycle, topol
 | Durability | Per-queue `durable` flag (default `true`) |
 | Classic priority | Opt-in `priority` with `max_priority` (1–10, default 10) |
 | Quorum queues | Declared with `x-queue-type: quorum` |
+| Dead letter | Default for subscribers: retries then `{name}.dlq` |
 
 ---
 
@@ -63,6 +64,8 @@ A config-driven Go library for RabbitMQ that handles connection lifecycle, topol
 - **Vhost-aware** — classic queues on `connection.vhost`, quorum queues on `connection.quorum_vhost`
 - **Classic priority queues** — sets `x-max-priority` when `priority: true`
 - **Quorum queues** — sets `x-queue-type: quorum` on declare
+- **Dead-letter wait queues** — `{name}.retry.{n}` with per-level queue TTL for every subscriber
+- **Dead-letter park queue** — `{name}.dlq` (list it in `queues` to consume poison)
 - **Reconnect re-declaration** — topology on the affected vhost is re-declared after reconnect before publish/consume resume
 - **Startup failure handling** — topology errors during `New` / `LoadClientFromFile` wrap `ErrTopologyDeclareFailed`
 
@@ -92,10 +95,10 @@ Typed sentinel errors: `ErrQueueNotFound`, `ErrEmptyPayload`, `ErrInvalidPriorit
 ## Consuming
 
 - **Handler-based API** — `RegisterConsumer(queueName, handler, opts...)`
-- **Manual ack/nack** — return `nil` to ack; return an error to nack
+- **Manual ack** — return `nil` to ack; return an error to delay-retry then park on `{queue}.dlq`
 - **Prefetch (QoS)** — `WithPrefetch(count)` (default 10)
 - **Concurrency** — `WithConcurrency(count)` worker goroutines per queue (default 1)
-- **Requeue on error** — `WithRequeueOnError(true)` to requeue failed messages
+- **Dead-letter retries** — default for subscribers; override with `dead_letter` (see Usage)
 - **Shutdown requeue** — messages not yet handled or interrupted during shutdown are requeued (not discarded)
 - **Handler context** — handlers receive a context that is cancelled when the consumer manager stops
 - **Delivery wrapper** — `Delivery` struct with `QueueName`, `Body`, `ContentType`, `Priority`, `MessageID`, `Timestamp`, `RoutingKey`, `Exchange`
@@ -153,7 +156,6 @@ Typed sentinel errors: `ErrQueueNotFound`, `ErrEmptyPayload`, `ErrInvalidPriorit
 | --- | --- |
 | `WithPrefetch` | Consumer prefetch count (`basic.qos`) |
 | `WithConcurrency` | Concurrent handler goroutines |
-| `WithRequeueOnError` | Requeue messages when handler returns an error |
 
 ---
 

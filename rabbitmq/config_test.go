@@ -57,6 +57,10 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Queues[0].ExchangeType != "direct" {
 		t.Fatalf("exchange_type default: got %q", cfg.Queues[0].ExchangeType)
 	}
+	dl := cfg.Queues[0].DeadLetter
+	if dl == nil || dl.MaxRetriesOrDefault() != 3 || dl.InitialDelayMs != 1000 || dl.MaxDelayMs != 60000 {
+		t.Fatalf("dead_letter defaults: %+v", dl)
+	}
 }
 
 func TestValidateSuccess(t *testing.T) {
@@ -141,6 +145,47 @@ func TestValidateErrors(t *testing.T) {
 			},
 			wantSub: "exchange_type must be direct, topic, or fanout",
 		},
+		{
+			name: "dead_letter on publishonly",
+			mutate: func(c *rabbitmq.Config) {
+				c.Queues = []rabbitmq.QueueConfig{
+					{Name: "out", Role: rabbitmq.QueueRolePublishOnly, QueueType: rabbitmq.QueueKindClassic, DeadLetter: &rabbitmq.DeadLetterConfig{}},
+				}
+			},
+			wantSub: "not allowed on publishonly",
+		},
+		{
+			name: "dead_letter on park queue",
+			mutate: func(c *rabbitmq.Config) {
+				c.Queues = []rabbitmq.QueueConfig{
+					{Name: "jobs", QueueType: rabbitmq.QueueKindClassic},
+					{Name: "jobs.dlq", QueueType: rabbitmq.QueueKindClassic, DeadLetter: &rabbitmq.DeadLetterConfig{}},
+				}
+			},
+			wantSub: "not allowed on a dead-letter park queue",
+		},
+		{
+			name: "dead_letter park queue type mismatch",
+			mutate: func(c *rabbitmq.Config) {
+				c.Queues = []rabbitmq.QueueConfig{
+					{Name: "jobs", QueueType: rabbitmq.QueueKindClassic},
+					{Name: "jobs.dlq", QueueType: rabbitmq.QueueKindQuorum},
+				}
+				c.Connection.QuorumVHost = "/quorum"
+			},
+			wantSub: "must have the same queue_type",
+		},
+		{
+			name: "retry wait name collision",
+			mutate: func(c *rabbitmq.Config) {
+				one := 1
+				c.Queues = []rabbitmq.QueueConfig{
+					{Name: "jobs", QueueType: rabbitmq.QueueKindClassic, DeadLetter: &rabbitmq.DeadLetterConfig{MaxRetries: &one}},
+					{Name: "jobs.retry.0", QueueType: rabbitmq.QueueKindClassic},
+				}
+			},
+			wantSub: "collides with retry wait queue",
+		},
 	}
 
 	for _, tc := range tests {
@@ -157,6 +202,60 @@ func TestValidateErrors(t *testing.T) {
 				t.Fatalf("error %q does not contain %q", err.Error(), tc.wantSub)
 			}
 		})
+	}
+}
+
+func TestDeadLetterDefaults(t *testing.T) {
+	cfg := rabbitmq.Config{
+		Connection: rabbitmq.ConnectionConfig{Host: "localhost", VHost: "/"},
+		Queues: []rabbitmq.QueueConfig{
+			{Name: "jobs", QueueType: rabbitmq.QueueKindClassic},
+		},
+	}
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	dl := cfg.Queues[0].DeadLetter
+	if dl.MaxRetriesOrDefault() != 3 || dl.InitialDelayMs != 1000 || dl.MaxDelayMs != 60000 {
+		t.Fatalf("defaults: %+v", dl)
+	}
+}
+
+func TestDeadLetterMaxRetriesZero(t *testing.T) {
+	zero := 0
+	cfg := rabbitmq.Config{
+		Connection: rabbitmq.ConnectionConfig{Host: "localhost", VHost: "/"},
+		Queues: []rabbitmq.QueueConfig{
+			{Name: "jobs", QueueType: rabbitmq.QueueKindClassic, DeadLetter: &rabbitmq.DeadLetterConfig{MaxRetries: &zero}},
+		},
+	}
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if cfg.Queues[0].DeadLetter.MaxRetriesOrDefault() != 0 {
+		t.Fatal("max_retries 0 must be kept")
+	}
+}
+
+func TestDeadLetterParkQueueInConfig(t *testing.T) {
+	cfg := rabbitmq.Config{
+		Connection: rabbitmq.ConnectionConfig{Host: "localhost", VHost: "/"},
+		Queues: []rabbitmq.QueueConfig{
+			{Name: "jobs", QueueType: rabbitmq.QueueKindClassic},
+			{Name: "jobs.dlq", QueueType: rabbitmq.QueueKindClassic},
+		},
+	}
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if cfg.Queues[0].DeadLetter == nil {
+		t.Fatal("source should have dead_letter defaults")
+	}
+	if cfg.Queues[1].DeadLetter != nil {
+		t.Fatal("park queue must not get dead_letter")
 	}
 }
 
