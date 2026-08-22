@@ -157,7 +157,7 @@ func TestIntegrationPublish(t *testing.T) {
 		return string(msg.Body)
 	}
 
-	if body := getMessage("/", "integration.publish.classic"); body != `{"event":"classic-normal"}` {
+	if body := getMessage("/", "integration.publish.classic"); body != `{"event":"classic"}` {
 		t.Fatalf("classic body: got %q", body)
 	}
 	if body := getMessage("/quorum", "integration.publish.quorum"); body != `{"event":"quorum"}` {
