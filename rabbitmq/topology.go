@@ -132,15 +132,6 @@ func (tm *TopologyManager) declareDeadLetter(ch *amqp.Channel, q QueueConfig) er
 	}
 
 	durable := q.DurableOrDefault()
-	maxRetries := q.DeadLetter.MaxRetriesOrDefault()
-	for level := 0; level < maxRetries; level++ {
-		ttl := retryDelayMs(level, q.DeadLetter.InitialDelayMs, q.DeadLetter.MaxDelayMs)
-		name := retryQueueName(q.Name, level)
-		if _, err := ch.QueueDeclare(name, durable, false, false, false, waitQueueArgs(q, ttl)); err != nil {
-			return topologyError("declare retry queue", q.QueueType, q.Exchange, name, q.Name, err)
-		}
-	}
-
 	dlq := defaultDLQName(q.Name)
 	if tm.cfg.QueueByName(dlq) != nil {
 		return nil
@@ -164,18 +155,6 @@ func queueDeclareArgs(q QueueConfig) amqp.Table {
 	}
 	if len(args) == 0 {
 		return nil
-	}
-	return args
-}
-
-func waitQueueArgs(q QueueConfig, ttlMs int64) amqp.Table {
-	args := amqp.Table{
-		"x-message-ttl":             ttlMs,
-		"x-dead-letter-exchange":    "",
-		"x-dead-letter-routing-key": q.Name,
-	}
-	for k, v := range queueDeclareArgs(q) {
-		args[k] = v
 	}
 	return args
 }

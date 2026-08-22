@@ -93,11 +93,9 @@ func TestIntegrationTopologyDeclare(t *testing.T) {
 	}
 
 	verifyQueue("/", "integration.topology.classic")
-	verifyQueue("/", "integration.topology.classic.retry.0")
 	verifyQueue("/", "integration.topology.classic.dlq")
 	verifyQueue("/", "integration.topology.publishonly")
 	verifyQueue("/quorum", "integration.topology.quorum")
-	verifyQueue("/quorum", "integration.topology.quorum.retry.0")
 	verifyQueue("/quorum", "integration.topology.quorum.dlq")
 }
 
@@ -290,19 +288,14 @@ func TestIntegrationDeadLetterRetryThenPark(t *testing.T) {
 	src := "integration.dl." + suffix
 	dlq := src + ".dlq"
 	one := 1
-	delay := 200
 
 	cfg := rabbitmq.Config{
 		Connection: rabbitmq.ConnectionConfig{Host: "localhost", VHost: "/"},
 		Queues: []rabbitmq.QueueConfig{
 			{
-				Name:      src,
-				QueueType: rabbitmq.QueueKindClassic,
-				DeadLetter: &rabbitmq.DeadLetterConfig{
-					MaxRetries:     &one,
-					InitialDelayMs: delay,
-					MaxDelayMs:     delay,
-				},
+				Name:       src,
+				QueueType:  rabbitmq.QueueKindClassic,
+				DeadLetter: &rabbitmq.DeadLetterConfig{MaxRetries: &one},
 			},
 			{Name: dlq, QueueType: rabbitmq.QueueKindClassic},
 		},

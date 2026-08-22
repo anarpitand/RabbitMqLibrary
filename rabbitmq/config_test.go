@@ -57,8 +57,7 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Queues[0].ExchangeType != "direct" {
 		t.Fatalf("exchange_type default: got %q", cfg.Queues[0].ExchangeType)
 	}
-	dl := cfg.Queues[0].DeadLetter
-	if dl == nil || dl.MaxRetriesOrDefault() != 3 || dl.InitialDelayMs != 1000 || dl.MaxDelayMs != 60000 {
+	if dl := cfg.Queues[0].DeadLetter; dl == nil || dl.MaxRetriesOrDefault() != 3 {
 		t.Fatalf("dead_letter defaults: %+v", dl)
 	}
 }
@@ -175,17 +174,6 @@ func TestValidateErrors(t *testing.T) {
 			},
 			wantSub: "must have the same queue_type",
 		},
-		{
-			name: "retry wait name collision",
-			mutate: func(c *rabbitmq.Config) {
-				one := 1
-				c.Queues = []rabbitmq.QueueConfig{
-					{Name: "jobs", QueueType: rabbitmq.QueueKindClassic, DeadLetter: &rabbitmq.DeadLetterConfig{MaxRetries: &one}},
-					{Name: "jobs.retry.0", QueueType: rabbitmq.QueueKindClassic},
-				}
-			},
-			wantSub: "collides with retry wait queue",
-		},
 	}
 
 	for _, tc := range tests {
@@ -217,7 +205,7 @@ func TestDeadLetterDefaults(t *testing.T) {
 		t.Fatalf("validate: %v", err)
 	}
 	dl := cfg.Queues[0].DeadLetter
-	if dl.MaxRetriesOrDefault() != 3 || dl.InitialDelayMs != 1000 || dl.MaxDelayMs != 60000 {
+	if dl.MaxRetriesOrDefault() != 3 {
 		t.Fatalf("defaults: %+v", dl)
 	}
 }

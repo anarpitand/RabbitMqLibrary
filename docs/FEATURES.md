@@ -64,7 +64,6 @@ A config-driven Go library for RabbitMQ that handles connection lifecycle, topol
 - **Vhost-aware** — classic queues on `connection.vhost`, quorum queues on `connection.quorum_vhost`
 - **Classic priority queues** — sets `x-max-priority` when `priority: true`
 - **Quorum queues** — sets `x-queue-type: quorum` on declare
-- **Dead-letter wait queues** — `{name}.retry.{n}` with per-level queue TTL for every subscriber
 - **Dead-letter park queue** — `{name}.dlq` (list it in `queues` to consume poison)
 - **Reconnect re-declaration** — topology on the affected vhost is re-declared after reconnect before publish/consume resume
 - **Startup failure handling** — topology errors during `New` / `LoadClientFromFile` wrap `ErrTopologyDeclareFailed`
@@ -95,7 +94,7 @@ Typed sentinel errors: `ErrQueueNotFound`, `ErrEmptyPayload`, `ErrInvalidPriorit
 ## Consuming
 
 - **Handler-based API** — `RegisterConsumer(queueName, handler, opts...)`
-- **Manual ack** — return `nil` to ack; return an error to delay-retry then park on `{queue}.dlq`
+- **Manual ack** — return `nil` to ack; return an error to retry immediately then park on `{queue}.dlq`
 - **Prefetch (QoS)** — `WithPrefetch(count)` (default 10)
 - **Concurrency** — `WithConcurrency(count)` worker goroutines per queue (default 1)
 - **Dead-letter retries** — default for subscribers; override with `dead_letter` (see Usage)

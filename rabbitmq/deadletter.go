@@ -1,7 +1,6 @@
 package rabbitmq
 
 import (
-	"fmt"
 	"math"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -9,41 +8,12 @@ import (
 
 const retryCountHeader = "x-rmq-retry-count"
 
-func retryQueueName(source string, level int) string {
-	return fmt.Sprintf("%s.retry.%d", source, level)
-}
-
 func defaultDLQName(source string) string {
 	return source + ".dlq"
 }
 
 func parkQueueName(q QueueConfig) string {
 	return defaultDLQName(q.Name)
-}
-
-// retryDelayMs is the queue TTL for wait level n: min(max, initial * 2^n).
-func retryDelayMs(level, initial, max int) int64 {
-	if initial <= 0 {
-		initial = defaultDeadLetterInitialDelayMs
-	}
-	if max <= 0 {
-		max = defaultDeadLetterMaxDelayMs
-	}
-	if level < 0 {
-		level = 0
-	}
-	d := int64(initial)
-	max64 := int64(max)
-	for i := 0; i < level; i++ {
-		if d > math.MaxInt64/2 || d*2 > max64 {
-			return max64
-		}
-		d *= 2
-	}
-	if d > max64 {
-		return max64
-	}
-	return d
 }
 
 func retryCountFromHeaders(h amqp.Table) int {

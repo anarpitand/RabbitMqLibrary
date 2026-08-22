@@ -6,21 +6,6 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func TestRetryDelayMs(t *testing.T) {
-	if got := retryDelayMs(0, 1000, 60000); got != 1000 {
-		t.Fatalf("level 0: got %d", got)
-	}
-	if got := retryDelayMs(1, 1000, 60000); got != 2000 {
-		t.Fatalf("level 1: got %d", got)
-	}
-	if got := retryDelayMs(2, 1000, 60000); got != 4000 {
-		t.Fatalf("level 2: got %d", got)
-	}
-	if got := retryDelayMs(10, 1000, 60000); got != 60000 {
-		t.Fatalf("capped: got %d", got)
-	}
-}
-
 func TestRetryCountFromHeaders(t *testing.T) {
 	if retryCountFromHeaders(nil) != 0 {
 		t.Fatal("nil headers")
@@ -39,10 +24,7 @@ func TestRetryCountFromHeaders(t *testing.T) {
 	}
 }
 
-func TestParkAndRetryNames(t *testing.T) {
-	if retryQueueName("orders", 2) != "orders.retry.2" {
-		t.Fatal("retry name")
-	}
+func TestParkName(t *testing.T) {
 	q := QueueConfig{Name: "orders", DeadLetter: &DeadLetterConfig{}}
 	if parkQueueName(q) != "orders.dlq" {
 		t.Fatal("auto dlq")

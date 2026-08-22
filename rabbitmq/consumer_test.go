@@ -171,7 +171,7 @@ func TestDeadLetterTarget(t *testing.T) {
 		},
 	}
 	target, next := deadLetterTarget(q, 0)
-	if target != "jobs.retry.0" || next != 1 {
+	if target != "jobs" || next != 1 {
 		t.Fatalf("first nack: %s %d", target, next)
 	}
 	target, next = deadLetterTarget(q, 1)

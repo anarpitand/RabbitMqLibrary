@@ -18,7 +18,7 @@ const (
 )
 
 // Handler processes a consumed message. Return nil to ack; return an error to
-// delay-retry or park on the dead-letter queue (or nack on shutdown).
+// retry immediately or park on the dead-letter queue (or nack on shutdown).
 type Handler func(ctx context.Context, d Delivery) error
 
 // ConsumerOption configures a registered consumer.
@@ -390,9 +390,9 @@ func (r *consumerRunner) handleDelivery(d amqp.Delivery) {
 	}
 }
 
-// routeFailedDelivery parks or delay-retries a nacked message, then acks the original.
+// routeFailedDelivery republishes to the source queue or parks, then acks the original.
 // ponytail: publish-then-ack can duplicate across crash; handlers must stay idempotent.
-// Upgrade: broker-atomic nack+DLX if a later design can still do per-level delay.
+// Upgrade: broker nack+requeue or quorum delayed-retry if delay is added back.
 func (r *consumerRunner) routeFailedDelivery(d amqp.Delivery, handlerErr error) error {
 	if r.mgr.pub == nil {
 		return fmt.Errorf("publisher not configured")
@@ -422,7 +422,7 @@ func (r *consumerRunner) routeFailedDelivery(d amqp.Delivery, handlerErr error) 
 func deadLetterTarget(q QueueConfig, count int) (string, int) {
 	maxRetries := q.DeadLetter.MaxRetriesOrDefault()
 	if count < maxRetries {
-		return retryQueueName(q.Name, count), count + 1
+		return q.Name, count + 1
 	}
 	return parkQueueName(q), count
 }

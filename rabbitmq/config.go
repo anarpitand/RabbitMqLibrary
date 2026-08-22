@@ -75,22 +75,17 @@ type QueueConfig struct {
 }
 
 const (
-	defaultDeadLetterMaxRetries     = 3
-	defaultDeadLetterInitialDelayMs = 1000
-	defaultDeadLetterMaxDelayMs     = 60000
-	maxDeadLetterRetries            = 16
+	defaultDeadLetterMaxRetries = 3
+	maxDeadLetterRetries        = 16
 )
 
 // DeadLetterConfig overrides default nack retry and parking for a subscriber queue.
 // Omitting it still enables dead-lettering with these defaults.
-// Delays are milliseconds so short retries (including tests) can be sub-second.
 type DeadLetterConfig struct {
-	MaxRetries     *int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
-	InitialDelayMs int  `json:"initial_delay_ms" yaml:"initial_delay_ms"`
-	MaxDelayMs     int  `json:"max_delay_ms" yaml:"max_delay_ms"`
+	MaxRetries *int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
 }
 
-// MaxRetriesOrDefault returns delayed redeliveries before parking (default 3).
+// MaxRetriesOrDefault returns immediate redeliveries before parking (default 3).
 func (d DeadLetterConfig) MaxRetriesOrDefault() int {
 	if d.MaxRetries != nil {
 		return *d.MaxRetries
@@ -182,12 +177,6 @@ func applyDeadLetterDefaults(dl *DeadLetterConfig) {
 	if dl.MaxRetries == nil {
 		v := defaultDeadLetterMaxRetries
 		dl.MaxRetries = &v
-	}
-	if dl.InitialDelayMs == 0 {
-		dl.InitialDelayMs = defaultDeadLetterInitialDelayMs
-	}
-	if dl.MaxDelayMs == 0 {
-		dl.MaxDelayMs = defaultDeadLetterMaxDelayMs
 	}
 }
 
@@ -318,11 +307,6 @@ func (c *Config) validateQueues() error {
 }
 
 func (c *Config) validateDeadLetter() error {
-	names := make(map[string]struct{}, len(c.Queues))
-	for _, q := range c.Queues {
-		names[q.Name] = struct{}{}
-	}
-
 	for i, q := range c.Queues {
 		prefix := fmt.Sprintf("queues[%d].dead_letter", i)
 		if q.Role == QueueRolePublishOnly && q.DeadLetter != nil {
@@ -338,22 +322,6 @@ func (c *Config) validateDeadLetter() error {
 		maxRetries := q.DeadLetter.MaxRetriesOrDefault()
 		if maxRetries < 0 || maxRetries > maxDeadLetterRetries {
 			return configError(prefix + ".max_retries must be between 0 and 16")
-		}
-		if q.DeadLetter.InitialDelayMs <= 0 {
-			return configError(prefix + ".initial_delay_ms must be greater than 0")
-		}
-		if q.DeadLetter.MaxDelayMs <= 0 {
-			return configError(prefix + ".max_delay_ms must be greater than 0")
-		}
-		if q.DeadLetter.MaxDelayMs < q.DeadLetter.InitialDelayMs {
-			return configError(prefix + ".max_delay_ms must be greater than or equal to initial_delay_ms")
-		}
-
-		for level := 0; level < maxRetries; level++ {
-			wait := retryQueueName(q.Name, level)
-			if _, ok := names[wait]; ok {
-				return configError("queue name collides with retry wait queue: " + wait)
-			}
 		}
 
 		dlq := defaultDLQName(q.Name)

@@ -49,29 +49,6 @@ func TestQueueDeclareArgs(t *testing.T) {
 	}
 }
 
-func TestWaitQueueArgs(t *testing.T) {
-	q := QueueConfig{Name: "orders", QueueType: QueueKindClassic, Priority: true}
-	got := waitQueueArgs(q, 1000)
-	want := amqp.Table{
-		"x-message-ttl":             int64(1000),
-		"x-dead-letter-exchange":    "",
-		"x-dead-letter-routing-key": "orders",
-		"x-max-priority":            int32(10),
-	}
-	if !tableEqual(got, want) {
-		t.Fatalf("waitQueueArgs() = %v, want %v", got, want)
-	}
-
-	qq := QueueConfig{Name: "orders", QueueType: QueueKindQuorum}
-	got = waitQueueArgs(qq, 2000)
-	if got["x-queue-type"] != "quorum" {
-		t.Fatalf("expected quorum type: %v", got)
-	}
-	if got["x-dead-letter-routing-key"] != "orders" {
-		t.Fatal("DLX must target the source queue name, not the app exchange")
-	}
-}
-
 func tableEqual(a, b amqp.Table) bool {
 	if len(a) == 0 && len(b) == 0 {
 		return true

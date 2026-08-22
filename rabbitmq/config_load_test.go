@@ -19,9 +19,7 @@ const sampleJSON = `{
       "name": "orders.created",
       "queue_type": "quorum",
       "dead_letter": {
-        "max_retries": 2,
-        "initial_delay_ms": 500,
-        "max_delay_ms": 4000
+        "max_retries": 2
       }
     },
     {

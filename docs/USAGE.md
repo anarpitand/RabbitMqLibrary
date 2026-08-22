@@ -439,29 +439,25 @@ err := client.RegisterConsumer("orders.created", handler,
 
 ### Dead-letter retries
 
-Every **subscriber** queue dead-letters on handler error (when the consumer is not shutting down). Omit `dead_letter` to use defaults. Park name is always `{name}.dlq`.
+Every **subscriber** queue dead-letters on handler error (when the consumer is not shutting down). Omit `dead_letter` to use defaults. Park name is always `{name}.dlq`. There is no delay: failed messages are republished immediately to the **source queue** until `max_retries`, then parked.
 
 ```yaml
-# optional overrides; omit the block for defaults
+# optional override; omit the block for defaults
 dead_letter:
   max_retries: 5
-  initial_delay_ms: 2000
-  max_delay_ms: 120000
 ```
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `max_retries` | `3` | Delayed redeliveries after the first failure (`0` parks immediately). Range 0–16 |
-| `initial_delay_ms` | `1000` | Level-0 wait queue TTL. Milliseconds (sub-second retries / tests) |
-| `max_delay_ms` | `60000` | Cap. Must be >= `initial_delay_ms` |
+| `max_retries` | `3` | Immediate redeliveries after the first failure (`0` parks immediately). Range 0–16 |
 
-Delay for level `n` is `min(max_delay_ms, initial_delay_ms * 2^n)` as a **queue** TTL on `{name}.retry.{n}` (one queue per level so classic queues do not block short retries behind long ones). Expired wait messages dead-letter to the **source queue only** (default exchange).
+JSON config must not include `initial_delay_ms` or `max_delay_ms` (unknown fields are rejected).
 
 To consume poison in-process, add a subscriber queue named `{source}.dlq` with the same `queue_type`. That park queue does not get its own retries. `publishonly` queues do not dead-letter.
 
 Shutdown still requeues in-flight work.
 
-Publish-then-ack is not atomic: a crash after the copy is confirmed and before ack can duplicate. Handlers should stay idempotent. Park queues are unbounded here; cap them with a broker policy if needed. Changing retry TTLs later fails startup if wait queues already exist with different args (precondition).
+Publish-then-ack is not atomic: a crash after the copy is confirmed and before ack can duplicate. Handlers should stay idempotent. Park queues are unbounded here; cap them with a broker policy if needed.
 
 Do not set the `x-rmq-retry-count` header on publishes; the library owns it.
 
