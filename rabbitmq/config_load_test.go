@@ -80,6 +80,19 @@ func TestLoadConfigFromYAML(t *testing.T) {
 	}
 }
 
+func TestLoadConfigOmitsQueueType(t *testing.T) {
+	cfg, err := rabbitmq.LoadConfigFromJSON(strings.NewReader(`{
+  "connection": { "host": "localhost", "vhost": "/" },
+  "queues": [ { "name": "events" } ]
+}`))
+	if err != nil {
+		t.Fatalf("LoadConfigFromJSON: %v", err)
+	}
+	if cfg.Queues[0].QueueType != rabbitmq.QueueKindClassic {
+		t.Fatalf("queue_type default: got %q", cfg.Queues[0].QueueType)
+	}
+}
+
 func TestLoadConfigFromJSONUnknownField(t *testing.T) {
 	_, err := rabbitmq.LoadConfigFromJSON(strings.NewReader(`{"unknown": true}`))
 	if err == nil {
