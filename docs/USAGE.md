@@ -112,7 +112,7 @@ The `queues` array defines topology (exchange, queue, binding) and routing metad
 | --- | --- | --- | --- |
 | `name` | string | — | Required. Unique. Used as publish/consume key |
 | `role` | string | `subscriber` | `subscriber` or `publishonly` |
-| `queue_type` | string | — | Required. `classic` or `quorum` |
+| `queue_type` | string | `classic` | `classic` or `quorum`. Omit for classic. |
 | `exchange` | string | same as `name` | Exchange to declare |
 | `exchange_type` | string | `direct` | `direct`, `topic`, or `fanout` |
 | `routing_key` | string | same as `name` | Binding and publish routing key |

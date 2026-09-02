@@ -25,7 +25,7 @@ func validConfig() rabbitmq.Config {
 func TestApplyDefaults(t *testing.T) {
 	cfg := rabbitmq.Config{
 		Queues: []rabbitmq.QueueConfig{
-			{Name: "events", QueueType: rabbitmq.QueueKindClassic},
+			{Name: "events"},
 		},
 	}
 	cfg.ApplyDefaults()
@@ -44,6 +44,9 @@ func TestApplyDefaults(t *testing.T) {
 	}
 	if !cfg.Connection.AutoReconnectOrDefault() {
 		t.Fatal("auto_reconnect default should be true")
+	}
+	if cfg.Queues[0].QueueType != rabbitmq.QueueKindClassic {
+		t.Fatalf("queue_type default: got %q", cfg.Queues[0].QueueType)
 	}
 	if cfg.Queues[0].Role != rabbitmq.QueueRoleSubscriber {
 		t.Fatalf("role default: got %q", cfg.Queues[0].Role)
@@ -67,6 +70,20 @@ func TestValidateSuccess(t *testing.T) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected valid config: %v", err)
+	}
+}
+
+func TestValidateNameOnlyQueue(t *testing.T) {
+	cfg := rabbitmq.Config{
+		Connection: rabbitmq.ConnectionConfig{Host: "localhost", VHost: "/"},
+		Queues:     []rabbitmq.QueueConfig{{Name: "orders.created"}},
+	}
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected valid config: %v", err)
+	}
+	if cfg.Queues[0].QueueType != rabbitmq.QueueKindClassic {
+		t.Fatalf("queue_type: got %q", cfg.Queues[0].QueueType)
 	}
 }
 
@@ -129,6 +146,13 @@ func TestValidateErrors(t *testing.T) {
 				}
 			},
 			wantSub: "max_priority must be between 1 and 10",
+		},
+		{
+			name: "invalid queue type",
+			mutate: func(c *rabbitmq.Config) {
+				c.Queues[0].QueueType = "nope"
+			},
+			wantSub: "queue_type must be classic or quorum",
 		},
 		{
 			name: "invalid role",

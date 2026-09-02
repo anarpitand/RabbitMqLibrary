@@ -150,6 +150,9 @@ func (c *Config) ApplyDefaults() {
 		if q.Role == "" {
 			q.Role = QueueRoleSubscriber
 		}
+		if q.QueueType == "" {
+			q.QueueType = QueueKindClassic
+		}
 		if q.Exchange == "" {
 			q.Exchange = q.Name
 		}

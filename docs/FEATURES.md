@@ -11,11 +11,11 @@ A config-driven Go library for RabbitMQ that handles connection lifecycle, topol
 - **Structured config** — connection settings and queue topology defined in code or files
 - **JSON and YAML** — load from `.json`, `.yaml`, or `.yml` via `LoadConfigFromFile` / `LoadClientFromFile`
 - **In-code config** — build `rabbitmq.Config` directly and pass to `New`
-- **Defaults** — sensible defaults for credentials, ports, heartbeat, reconnect interval, exchange names, routing keys, and durability
+- **Defaults** — sensible defaults for credentials, ports, heartbeat, reconnect interval, exchange names, routing keys, durability, and `queue_type` (`classic` when omitted)
 - **Validation** — config validated at client creation (`Validate`) with typed `ErrConfigInvalid`
 - **Environment overrides** — optional overrides for `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_HOST`
 - **Queue roles** — `subscriber` (publish + consume) and `publishonly` (publish only)
-- **Queue types** — `classic` and `quorum`, each routed to the correct vhost automatically
+- **Queue types** — `classic` (default when omitted) and `quorum`, each routed to the correct vhost automatically
 
 ### Connection settings
 
@@ -37,6 +37,7 @@ A config-driven Go library for RabbitMQ that handles connection lifecycle, topol
 | Exchange | Per-queue `exchange`, `exchange_type` (`direct`, `topic`, `fanout`) |
 | Routing key | Per-queue `routing_key` for binding and publish |
 | Durability | Per-queue `durable` flag (default `true`) |
+| Queue type | `classic` or `quorum` (`classic` when `queue_type` is omitted) |
 | Classic priority | Opt-in `priority` with `max_priority` (1–10, default 10) |
 | Quorum queues | Declared with `x-queue-type: quorum` |
 | Dead letter | Default for subscribers: retries then `{name}.dlq` |
