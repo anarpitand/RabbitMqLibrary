@@ -22,6 +22,9 @@ queues:
     exchange: orders.created
     exchange_type: direct
     routing_key: orders.created
+  - name: orders.created.dlq
+    role: subscriber
+    queue_type: quorum
   - name: orders.failed
     role: subscriber
     queue_type: classic

@@ -107,7 +107,7 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Client, error) {
 	conn := NewConnectionManager(cfg, o.logger, o.dialFn, o.onDisconnect, onReconnect)
 	topo = NewTopologyManager(conn, cfg, o.logger)
 	pub = NewPublisher(conn, cfg, o.logger, o.confirmTimeout, o.publishMaxRetries)
-	cons = NewConsumerManager(conn, cfg, o.logger)
+	cons = NewConsumerManager(conn, cfg, o.logger, pub)
 
 	client := &Client{
 		cfg:    cfg,
